@@ -1,0 +1,155 @@
+"""Configuration loading utilities for MailBot Premium v26.
+
+This module follows the project Constitution by favoring clarity and
+strict validation over implicit defaults. All configuration files are
+stored under ``mailbot_v26/config`` and are separated to keep secrets
+and per-account settings isolated.
+"""
+
+from __future__ import annotations
+
+import configparser
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List
+
+CONFIG_DIR = Path(__file__).resolve().parent / "config"
+
+
+@dataclass
+class GeneralConfig:
+    """Top-level bot settings."""
+
+    check_interval: int
+    max_attachment_mb: int
+    admin_chat_id: str
+
+
+@dataclass
+class AccountConfig:
+    """Configuration for a single IMAP account."""
+
+    name: str
+    login: str
+    password: str
+    host: str
+    port: int
+    use_ssl: bool
+    telegram_chat_id: str
+
+
+@dataclass
+class KeysConfig:
+    """External service tokens."""
+
+    telegram_bot_token: str
+    cf_account_id: str
+    cf_api_token: str
+
+
+@dataclass
+class BotConfig:
+    """Aggregate configuration bundle."""
+
+    general: GeneralConfig
+    accounts: List[AccountConfig]
+    keys: KeysConfig
+
+
+class ConfigError(Exception):
+    """Raised when configuration files are missing or invalid."""
+
+
+def _read_config_file(path: Path) -> configparser.ConfigParser:
+    parser = configparser.ConfigParser()
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
+    parser.read(path, encoding="utf-8")
+    return parser
+
+
+def load_general_config(base_dir: Path = CONFIG_DIR) -> GeneralConfig:
+    parser = _read_config_file(base_dir / "config.ini")
+    if "general" not in parser:
+        raise ConfigError("[general] section missing in config.ini")
+
+    section = parser["general"]
+    try:
+        return GeneralConfig(
+            check_interval=section.getint("check_interval", fallback=300),
+            max_attachment_mb=section.getint("max_attachment_mb", fallback=15),
+            admin_chat_id=section.get("admin_chat_id", fallback=""),
+        )
+    except ValueError as exc:  # invalid numbers
+        raise ConfigError(f"Invalid value in config.ini: {exc}") from exc
+
+
+def load_accounts_config(base_dir: Path = CONFIG_DIR) -> List[AccountConfig]:
+    parser = _read_config_file(base_dir / "accounts.ini")
+    accounts: List[AccountConfig] = []
+    for section_name in parser.sections():
+        section = parser[section_name]
+        try:
+            account = AccountConfig(
+                name=section_name,
+                login=section["login"],
+                password=section["password"],
+                host=section.get("host", ""),
+                port=section.getint("port", fallback=993),
+                use_ssl=section.getboolean("use_ssl", fallback=True),
+                telegram_chat_id=section.get("telegram_chat_id", fallback=""),
+            )
+        except KeyError as exc:
+            raise ConfigError(f"Missing required field {exc!s} in accounts.ini:{section_name}") from exc
+        except ValueError as exc:
+            raise ConfigError(f"Invalid numeric field in accounts.ini:{section_name}: {exc}") from exc
+        accounts.append(account)
+
+    if not accounts:
+        raise ConfigError("No accounts defined in accounts.ini")
+    return accounts
+
+
+def load_keys_config(base_dir: Path = CONFIG_DIR) -> KeysConfig:
+    parser = _read_config_file(base_dir / "keys.ini")
+    if "telegram" not in parser or "cloudflare" not in parser:
+        raise ConfigError("keys.ini must contain [telegram] and [cloudflare] sections")
+
+    telegram = parser["telegram"]
+    cloudflare = parser["cloudflare"]
+    try:
+        return KeysConfig(
+            telegram_bot_token=telegram["bot_token"],
+            cf_account_id=cloudflare["account_id"],
+            cf_api_token=cloudflare["api_token"],
+        )
+    except KeyError as exc:
+        raise ConfigError(f"Missing key in keys.ini: {exc!s}") from exc
+
+
+def load_config(base_dir: Path = CONFIG_DIR) -> BotConfig:
+    """Load and validate all configuration files.
+
+    Parameters
+    ----------
+    base_dir:
+        Optional base directory override. Defaults to ``mailbot_v26/config``.
+    """
+
+    general = load_general_config(base_dir)
+    accounts = load_accounts_config(base_dir)
+    keys = load_keys_config(base_dir)
+    return BotConfig(general=general, accounts=accounts, keys=keys)
+
+
+__all__ = [
+    "AccountConfig",
+    "BotConfig",
+    "ConfigError",
+    "GeneralConfig",
+    "KeysConfig",
+    "load_config",
+    "load_accounts_config",
+    "load_general_config",
+    "load_keys_config",
+]
