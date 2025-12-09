@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .bot_core.message_processor import Attachment, InboundMessage, MessageProcessor
 from .config_loader import BotConfig, ConfigError, load_config
 from .pipeline.processor import Message, PipelineProcessor
 from .state_manager import StateManager
@@ -31,6 +32,23 @@ def demo_run() -> str:
     )
     summary = processor.process(account.login, message)
     return summary
+
+
+def demo_run_bot_core() -> str:
+    """Demo run using the bot_core.MessageProcessor pipeline."""
+
+    config = load_config(Path(__file__).resolve().parent / "config")
+    state = StateManager()
+    message_processor = MessageProcessor(config, state)
+
+    message = InboundMessage(
+        subject="Счёт на оплату №321",
+        body="Просим оплатить 12000 руб до 01.01.2025",
+        attachments=[
+            Attachment(filename="invoice.pdf", content=b""),
+        ],
+    )
+    return message_processor.process(config.accounts[0].login, message)
 
 
 if __name__ == "__main__":
