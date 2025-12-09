@@ -1,147 +1,186 @@
-"""
-Keyword-based document classifier for MailBot Premium v26.
-Complies with CONSTITUTION.md Section III.4.a.
+"""Deterministic attachment classifier with Constitution safeguards.
+
+Section IV: attachments are classified purely by heuristics (no ML).
+Section II.3: deterministic, low-memory rules only.
+Section VIII: guaranteed mode—safe handling of corrupt files.
 """
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Tuple
 
-# Document type keywords (Russian + English)
-KEYWORDS = {
-    "invoice": [
-        "счет", "счёт", "invoice", "оплата", "накладная", "bill",
-        "payment", "акт", "к оплате",
-    ],
-    "contract": [
-        "договор", "agreement", "контракт", "contract", "соглашение",
-    ],
-    "payment_request": [
-        "оплатить", "срочно оплатить", "просим оплатить",
-        "request for payment", "payment due",
-    ],
-    "claim": [
-        "претензия", "рекламация", "complaint", "claim",
-        "возражение", "несогласие",
-    ],
-    "delivery_act": [
-        "акт выполненных работ", "акт приёмки", "ксу", "ksu",
-        "act of acceptance", "delivery note",
-    ],
-    "bank_statement": [
-        "выписка", "statement", "bank statement", "движение средств",
-    ],
-    "specification": [
-        "спецификация", "specification", "перечень товаров", "спецификация",
-    ],
-    "legal_notice": [
-        "уведомление", "требование", "legal notice",
-        "demand letter", "судебное",
-    ],
-    "hr_doc": [
-        "приказ", "заявление", "order", "увольнение",
-        "отпуск", "hr", "кадры",
-    ],
-    "scanned": [
-        "scan", "скан", ".jpg", ".jpeg", ".png", ".tiff",
-        "фото", "image",
-    ],
+
+Category = str
+
+# Extension → category mapping (deterministic, no guessing)
+_EXTENSION_MAP: dict[str, Category] = {
+    ".pdf": "PDF",
+    ".docx": "DOCX",
+    ".doc": "DOC",
+    ".xlsx": "XLSX",
+    ".xls": "XLS",
+    ".png": "IMAGE",
+    ".jpg": "IMAGE",
+    ".jpeg": "IMAGE",
+    ".tif": "IMAGE",
+    ".tiff": "IMAGE",
+    ".bmp": "IMAGE",
+    ".gif": "IMAGE",
+    ".txt": "TEXT",
 }
 
+# MIME → category mapping
+_MIME_MAP: dict[str, Category] = {
+    "application/pdf": "PDF",
+    "application/msword": "DOC",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "DOCX",
+    "application/vnd.ms-excel": "XLS",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "XLSX",
+    "image/png": "IMAGE",
+    "image/jpeg": "IMAGE",
+    "image/tiff": "IMAGE",
+    "image/gif": "IMAGE",
+    "image/bmp": "IMAGE",
+    "text/plain": "TEXT",
+}
 
-def classify_by_keywords(
-    filename: str,
-    text_sample: str,
-    content_type: str = "",
-) -> Tuple[Optional[str], float]:
+# Magic prefix bytes for quick sniffing
+_PDF_MAGIC = b"%PDF-"
+_ZIP_MAGIC = b"PK\x03\x04"
+_DOC_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"  # OLE Compound File (legacy DOC/XLS)
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_JPEG_MAGIC = b"\xff\xd8\xff"
+_GIF_MAGIC = b"GIF8"
+_TIFF_MAGIC = (b"II*\x00", b"MM\x00*")
+_TEXT_PRINTABLE = set(range(0x20, 0x7F)) | {0x09, 0x0A, 0x0D}
+
+
+@dataclass(frozen=True)
+class AttachmentProbe:
+    filename: str
+    mime_type: str = ""
+    content_bytes: bytes = b""
+
+    def suffix(self) -> str:
+        return Path(self.filename or "").suffix.lower()
+
+    def prefix(self, length: int = 12) -> bytes:
+        return (self.content_bytes or b"")[:length]
+
+
+def classify_attachment(filename: str = "", mime_type: str = "", content_bytes: bytes = b"") -> Category:
+    """Classify an attachment without ML.
+
+    Priority order: MIME → extension → magic sniff → text heuristic → UNKNOWN.
     """
-    Fast keyword-based classification.
 
-    Args:
-        filename: Attachment filename
-        text_sample: First ~500 chars of extracted text
-        content_type: MIME type
+    probe = AttachmentProbe(filename=filename or "", mime_type=(mime_type or "").lower(), content_bytes=content_bytes or b"")
 
-    Returns:
-        (document_type, confidence_score)
-        Returns (None, 0.0) if no match
+    # 1) MIME type (already authoritative)
+    if probe.mime_type in _MIME_MAP:
+        return _MIME_MAP[probe.mime_type]
 
-    Confidence scale:
-        0.9-1.0: Multiple strong matches
-        0.7-0.9: Single strong match
-        0.5-0.7: Weak match
-        < 0.5: Uncertain (should use LLM fallback)
+    # 2) Extension mapping
+    suffix = probe.suffix()
+    if suffix in _EXTENSION_MAP:
+        return _EXTENSION_MAP[suffix]
+
+    # 3) Magic prefix sniffing (small prefix only)
+    head = probe.prefix(16)
+    if head.startswith(_PDF_MAGIC):
+        return "PDF"
+    if head.startswith(_PNG_MAGIC):
+        return "IMAGE"
+    if head.startswith(_JPEG_MAGIC):
+        return "IMAGE"
+    if head.startswith(_GIF_MAGIC):
+        return "IMAGE"
+    if any(head.startswith(sig) for sig in _TIFF_MAGIC):
+        return "IMAGE"
+    if head.startswith(_DOC_MAGIC):
+        # Legacy OLE container: decide between DOC/XLS only if filename hints; else UNKNOWN.
+        if suffix == ".doc":
+            return "DOC"
+        if suffix == ".xls":
+            return "XLS"
+        return "UNKNOWN"
+    if head.startswith(_ZIP_MAGIC):
+        # Could be DOCX/XLSX/other ZIP—use filename hint only.
+        if suffix == ".docx":
+            return "DOCX"
+        if suffix == ".xlsx":
+            return "XLSX"
+        return "UNKNOWN"
+
+    # 4) Light text heuristic for plain text fallbacks
+    if head and _looks_like_text(probe.content_bytes):
+        return "TEXT"
+
+    return "UNKNOWN"
+
+
+def classify_by_keywords(filename: str, text_sample: str = "", content_type: str = "") -> Tuple[Category | None, float]:
+    """Compatibility wrapper returning deterministic attachment categories.
+
+    Returns (category, confidence) with 1.0 for known deterministic matches,
+    or (None, 0.0) when no supported category is detected.
     """
-    filename_lower = (filename or "").lower()
-    text_lower = (text_sample or "")[:500].lower()
-    content_type_lower = (content_type or "").lower()
 
-    search_text = f"{filename_lower} {text_lower} {content_type_lower}"
-
-    scores: dict[str, float] = {}
-    for doc_type, keywords in KEYWORDS.items():
-        matches = 0
-        for keyword in keywords:
-            if keyword in search_text:
-                matches += 1
-
-        if matches > 0:
-            if matches >= 3:
-                scores[doc_type] = 0.95
-            elif matches == 2:
-                scores[doc_type] = 0.85
-            elif matches == 1:
-                scores[doc_type] = 0.70
-
-    if not scores:
+    category = classify_attachment(filename=filename, mime_type=content_type)
+    if category == "UNKNOWN":
         return (None, 0.0)
-
-    best_type = max(scores, key=scores.get)
-    confidence = scores[best_type]
-
-    return (best_type, confidence)
+    return (category, 1.0)
 
 
-def _self_test() -> bool:
-    """Internal self-test."""
+def _looks_like_text(data: bytes, sample: int = 256, binary_threshold: float = 0.10) -> bool:
+    sample_bytes = data[:sample]
+    if not sample_bytes:
+        return False
+    non_printable = sum(1 for b in sample_bytes if b not in _TEXT_PRINTABLE)
+    return (non_printable / len(sample_bytes)) <= binary_threshold
 
-    result = classify_by_keywords(
-        filename="invoice_123.pdf",
-        text_sample="Счёт на оплату 150000 рублей. Просим оплатить до 20.12.2024",
-    )
-    assert result[0] == "invoice" or result[0] == "payment_request"
-    assert result[1] >= 0.70
 
-    result = classify_by_keywords(
-        filename="agreement_2024.docx",
-        text_sample="Договор №123/45 на оказание услуг",
-    )
-    assert result[0] == "contract"
-    assert result[1] >= 0.70
+# -------------------- Self-test --------------------
 
-    result = classify_by_keywords(
-        filename="scan_20241209.jpg",
-        text_sample="",
-        content_type="image/jpeg",
-    )
-    assert result[0] == "scanned"
+def _self_test_entries() -> List[Tuple[str, str, bytes]]:
+    return [
+        ("report.pdf", "application/pdf", _PDF_MAGIC + b" test"),
+        ("contract.DOCX", "", _ZIP_MAGIC + b"..."),
+        ("legacy_form.doc", "application/msword", _DOC_MAGIC + b"..."),
+        ("sheet.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", _ZIP_MAGIC + b"..."),
+        ("legacy.xls", "", _DOC_MAGIC + b"..."),
+        ("photo.jpeg", "image/jpeg", _JPEG_MAGIC + b"morebytes"),
+        ("diagram.png", "", _PNG_MAGIC + b"..."),
+        ("notes.txt", "text/plain", b"hello world"),
+        ("readme", "", b"Plain ASCII text snippet"),
+        ("unknown.bin", "application/octet-stream", b"\x00\x01\x02\x03"),
+    ]
 
-    result = classify_by_keywords(
-        filename="unknown.txt",
-        text_sample="Just some random text without keywords",
-    )
-    assert result[0] is None
-    assert result[1] == 0.0
 
-    result = classify_by_keywords(
-        filename="contract_and_invoice.pdf",
-        text_sample="Договор №1. Счёт на оплату. К оплате 100000.",
-    )
-    assert result[0] in ["invoice", "contract", "payment_request"]
-    assert result[1] >= 0.85
+def _run_self_test() -> bool:
+    entries = _self_test_entries()
+    results: List[Tuple[str, Category]] = []
+    for name, mime, data in entries:
+        category = classify_attachment(filename=name, mime_type=mime, content_bytes=data)
+        results.append((name, category))
+        print(f"{name:15s} | mime={mime or '-':45s} | -> {category}")
 
+    # Assertions (deterministic expectations)
+    assert results[0][1] == "PDF"
+    assert results[1][1] == "DOCX"
+    assert results[2][1] == "DOC"
+    assert results[3][1] == "XLSX"
+    assert results[4][1] == "XLS"
+    assert results[5][1] == "IMAGE"
+    assert results[6][1] == "IMAGE"
+    assert results[7][1] == "TEXT"
+    assert results[8][1] == "TEXT"
+    assert results[9][1] == "UNKNOWN"
+
+    print("\n✅ Self-test passed: 10/10 deterministic checks")
     return True
 
 
 if __name__ == "__main__":
-    if _self_test():
-        print("\n✅ Keyword classifier self-test PASSED (5/5 tests)")
+    _run_self_test()
