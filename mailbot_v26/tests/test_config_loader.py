@@ -1,0 +1,73 @@
+import tempfile
+from pathlib import Path
+
+import pytest
+
+from mailbot_v26.config_loader import (
+    BotConfig,
+    ConfigError,
+    load_accounts_config,
+    load_config,
+    load_general_config,
+    load_keys_config,
+)
+
+
+def write_file(tmpdir: Path, name: str, content: str) -> None:
+    path = tmpdir / name
+    path.write_text(content, encoding="utf-8")
+
+
+def build_sample_config(tmpdir: Path) -> None:
+    write_file(
+        tmpdir,
+        "config.ini",
+        """[general]
+check_interval = 400
+max_attachment_mb = 20
+admin_chat_id = 111
+""",
+    )
+    write_file(
+        tmpdir,
+        "accounts.ini",
+        """[primary]
+login = sample@example.com
+password = secret
+host = imap.example.com
+port = 993
+use_ssl = true
+telegram_chat_id = 222
+""",
+    )
+    write_file(
+        tmpdir,
+        "keys.ini",
+        """[telegram]
+bot_token = token
+
+[cloudflare]
+account_id = acc
+api_token = key
+""",
+    )
+
+
+def test_load_full_config(tmp_path: Path) -> None:
+    build_sample_config(tmp_path)
+    cfg = load_config(tmp_path)
+    assert isinstance(cfg, BotConfig)
+    assert cfg.general.check_interval == 400
+    assert cfg.accounts[0].login == "sample@example.com"
+    assert cfg.keys.telegram_bot_token == "token"
+
+
+def test_missing_files_raise() -> None:
+    with pytest.raises(ConfigError):
+        load_general_config(Path("/nonexistent"))
+
+
+def test_accounts_missing_section(tmp_path: Path) -> None:
+    write_file(tmp_path, "accounts.ini", "")
+    with pytest.raises(ConfigError):
+        load_accounts_config(tmp_path)
