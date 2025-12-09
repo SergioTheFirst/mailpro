@@ -1,20 +1,19 @@
-"""Lightweight end-to-end pipeline skeleton.
-
-The implementation is intentionally deterministic so it can run in
-resource-constrained environments while respecting the Constitution's
-pipeline order.
-"""
-
+"""Pipeline processor with validation and final formatting."""
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional
+from pathlib import Path
+from typing import List, Optional
 
-from ..config_loader import BotConfig
-from ..formatter import format_summary
-from ..state_manager import StateManager
+if __name__ == "__main__" and __package__ is None:
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+
+from mailbot_v26.bot_core import validation
+from mailbot_v26.config_loader import BotConfig
+from mailbot_v26.state_manager import StateManager
 
 _AMOUNT_RE = re.compile(r"(?P<amount>\d+[\d\s]*[\.,]?\d*)\s*(?P<currency>₽|руб|рублей|usd|eur|€|\$)?", re.IGNORECASE)
 _DATE_RE = re.compile(r"(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})")
@@ -48,8 +47,11 @@ class PipelineProcessor:
         doc_type = self._classify(text)
         facts = self._extract_facts(text)
         facts.doc_type = doc_type
-        validated = self._validate(facts, text)
-        return self._format_output(validated, message.subject)
+        facts = self._validate(facts, text)
+        facts_line = self._facts_to_line(facts)
+        validated = validation.validate_summary(facts_line, text)
+        final_msg = build_final_message(message.subject, validated)
+        return final_msg
 
     def _extract_text(self, message: Message) -> str:
         parts: List[str] = [message.subject, message.body]
@@ -94,25 +96,62 @@ class PipelineProcessor:
         return None
 
     def _validate(self, facts: FactSummary, text: str) -> FactSummary:
-        # Remove obviously contradicted facts (simple negation check)
         lowered = text.lower()
         if facts.action and any(neg in lowered for neg in ["не", "отмена", "cancel"]):
             facts.action = None
         return facts
 
-    def _format_output(self, facts: FactSummary, subject: str) -> str:
+    def _facts_to_line(self, facts: FactSummary) -> str:
         parts: List[str] = []
         if facts.amount:
-            parts.append(f"💰{facts.amount}")
+            parts.append(f"СУММА: {facts.amount}")
         if facts.date:
-            parts.append(f"📅{facts.date}")
+            parts.append(f"СРОК: {facts.date}")
         if facts.action:
-            parts.append(f"▶{facts.action}")
-        if not parts:
-            parts.append(subject.strip())
-        if facts.doc_type and parts:
-            parts.append(f"#{facts.doc_type}")
-        return format_summary(parts)
+            parts.append(f"ДЕЙСТВИЕ: {facts.action}")
+        if facts.doc_type:
+            parts.append(f"ДОКУМЕНТ: {facts.doc_type}")
+        return " | ".join(parts)
 
 
-__all__ = ["PipelineProcessor", "Message", "FactSummary"]
+def build_final_message(subject: str, facts_str: str | None) -> str:
+    facts_str = (facts_str or "").strip()
+    if not facts_str:
+        return ""
+
+    base_message = f"✉ {subject} — {facts_str}"
+    replacements = {
+        "СУММА:": "💰",
+        "СРОК:": "📅",
+        "ДОКУМЕНТ:": "№",
+        "ДЕЙСТВИЕ:": "▶",
+    }
+    for token, emoji in replacements.items():
+        base_message = base_message.replace(token, emoji)
+
+    assert "none" not in base_message.lower()
+    if len(base_message) > 200:
+        return base_message[:197] + "…"
+    return base_message
+
+
+__all__ = ["PipelineProcessor", "Message", "FactSummary", "build_final_message"]
+
+
+def _self_test_build_final_message():
+    subject = "Оплата счёта"
+    original = "Просим оплатить счёт №123 на сумму 150000 рублей до 20.12.2024"
+    facts = "СУММА: 150000 | СРОК: 20.12.2024 | ДОКУМЕНТ: №123 | ДЕЙСТВИЕ: оплатить"
+
+    valid = validation.validate_summary(facts, original)
+    final = build_final_message(subject, valid)
+
+    assert final.startswith("✉ Оплата счёта")
+    assert "NONE" not in final
+    assert len(final) <= 200
+
+    print("✅ STEP 16: build_final_message self-test PASSED")
+
+
+if __name__ == "__main__":
+    _self_test_build_final_message()
