@@ -50,7 +50,9 @@ class PipelineProcessor:
         facts = self._validate(facts, text)
         facts_line = self._facts_to_line(facts)
         validated = validation.validate_summary(facts_line, text)
-        final_msg = build_final_message(message.subject, validated)
+        has_key_facts = any([facts.amount, facts.date, facts.action])
+        fallback_summary = facts_line if facts_line and has_key_facts else None
+        final_msg = build_final_message(message.subject, validated or fallback_summary)
         return final_msg
 
     def _extract_text(self, message: Message) -> str:
