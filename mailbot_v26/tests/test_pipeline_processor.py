@@ -18,6 +18,7 @@ def test_pipeline_generates_compact_summary(tmp_path: Path) -> None:
         account_login=config.accounts[0].login,
         message=Message(subject="Счет 321", body="Оплатить 12000 руб до 01.01.2025"),
     )
+    assert summary.startswith("✉ ")
     assert "💰" in summary
     assert "📅" in summary
     assert len(summary) <= 200
@@ -36,4 +37,4 @@ def test_pipeline_falls_back_to_subject_when_no_facts(tmp_path: Path) -> None:
         account_login=config.accounts[0].login,
         message=Message(subject="Обновление", body="Привет"),
     )
-    assert summary.startswith("Обновление")
+    assert summary == ""
