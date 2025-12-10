@@ -19,3 +19,6 @@ def extract_excel(file_bytes: bytes, filename: str) -> str:
         return df.to_string(index=False, header=True)
     except Exception:
         return ""
+
+
+extract_excel_text = extract_excel

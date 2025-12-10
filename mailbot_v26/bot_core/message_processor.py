@@ -9,6 +9,7 @@ from typing import Iterable, List
 from ..config_loader import BotConfig
 from ..formatter import format_summary
 from ..state_manager import StateManager
+from .action_engine import analyze_action
 from .classifier import classify_by_keywords
 from .llm_client import CloudflareConfig, CloudflareLLMClient, load_prompt
 from .validation import drop_none_tokens, ensure_length, is_confident_score
@@ -49,6 +50,10 @@ class MessageProcessor:
 
     def process(self, account_login: str, message: InboundMessage) -> str:
         text = self._collect_text(message)
+        action_summary, action_confidence = self._try_action_engine(text)
+        if action_confidence >= 0.7 and action_summary:
+            clipped = ensure_length(action_summary)
+            return format_summary([clipped])
         doc_type, score = classify_by_keywords(
             filename=" ".join(att.filename for att in message.attachments),
             text_sample=text,
@@ -62,6 +67,22 @@ class MessageProcessor:
         if doc_type and cleaned:
             clipped = ensure_length(f"{clipped} | #{doc_type}")
         return format_summary([clipped])
+
+    def _try_action_engine(self, text: str) -> tuple[str, float]:
+        facts = analyze_action(text)
+        parts = []
+        if facts.action:
+            parts.append(f"ДЕЙСТВИЕ: {facts.action}")
+        if facts.amount:
+            parts.append(f"СУММА: {facts.amount}")
+        if facts.date:
+            parts.append(f"СРОК: {facts.date}")
+        if facts.doc_number:
+            parts.append(f"ДОКУМЕНТ: {facts.doc_number}")
+        if facts.urgency:
+            parts.append(f"СРОЧНОСТЬ: {facts.urgency}")
+        summary = " | ".join(parts)
+        return summary, facts.confidence
 
     def _collect_text(self, message: InboundMessage) -> str:
         parts = [message.subject, message.body]

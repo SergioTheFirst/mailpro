@@ -27,3 +27,6 @@ def extract_doc(file_bytes: bytes, filename: str) -> str:
             return ""
 
     return ""
+
+
+extract_docx_text = extract_doc
