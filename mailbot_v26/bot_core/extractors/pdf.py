@@ -20,8 +20,6 @@ import io
 import logging
 from typing import Optional, List
 
-import psutil
-
 try:
     from pypdf import PdfReader
 except ImportError:  # fail-safe, обработаем ниже
@@ -111,58 +109,8 @@ def _extract_with_pikepdf(file_bytes: bytes) -> str:
 
 
 def _ocr_pdf_if_possible(file_bytes: bytes) -> str:
-    """
-    Последний шанс: OCR через EasyOCR, если RAM позволяет.
-
-    Условия запуска:
-    - свободно ≥ 800 МБ RAM
-    - есть easyocr и torch (CPU-only)
-    """
-    mem = psutil.virtual_memory()
-    if mem.available < 800 * 1024 * 1024:
-        logger.warning("RAM low (%.1f MB), skip OCR", mem.available / 1024 / 1024)
-        return ""
-
-    try:
-        import gc
-        from pdf2image import convert_from_bytes
-        import easyocr
-    except Exception as e:
-        logger.warning("OCR deps not available: %s", e)
-        return ""
-
-    try:
-        logger.info("Loading EasyOCR reader (ru+en, cpu)")
-        reader = easyocr.Reader(["ru", "en"], gpu=False)
-    except Exception as e:
-        logger.warning("EasyOCR init failed: %s", e)
-        return ""
-
-    try:
-        images = convert_from_bytes(
-            file_bytes, dpi=200, first_page=1, last_page=5
-        )
-    except Exception as e:
-        logger.warning("pdf2image convert failed: %s", e)
-        return ""
-
-    result_lines: List[str] = []
-    for img in images:
-        try:
-            texts = reader.readtext(img, detail=False, paragraph=True)
-            for t in texts:
-                if isinstance(t, str) and t.strip():
-                    result_lines.append(t.strip())
-        except Exception as e:
-            logger.debug("EasyOCR page failed: %s", e)
-        finally:
-            try:
-                del img  # type: ignore
-            except Exception:
-                pass
-            gc.collect()
-
-    return _safe_join(result_lines, limit=50_000)
+    """OCR disabled per CONSTITUTION (torch forbidden)."""
+    return ""
 
 
 def extract_pdf(file_bytes: bytes, filename: str) -> str:
@@ -192,3 +140,6 @@ def extract_pdf(file_bytes: bytes, filename: str) -> str:
     # 3. OCR как последний шанс
     ocr_text = _ocr_pdf_if_possible(file_bytes)
     return ocr_text or ""
+
+
+extract_pdf_text = extract_pdf
