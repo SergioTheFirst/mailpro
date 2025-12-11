@@ -22,7 +22,7 @@ if "__file__" not in globals():
 if __name__ == "__main__" and __package__ is None:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from mailbot_v26.config_loader import BotConfig, load_config
+from mailbot_v26.config_loader import BotConfig, GeneralConfig, KeysConfig, load_config
 from mailbot_v26.imap_client import ResilientIMAP
 from mailbot_v26.state_manager import StateManager
 from mailbot_v26.bot_core.message_processor import (
@@ -38,10 +38,12 @@ LOG_PATH = CURRENT_DIR / "mailbot.log"
 
 
 def _configure_logging() -> None:
+    handlers: List[logging.Handler] = []
     try:
-        handlers: List[logging.Handler] = []
         try:
-            handlers.append(logging.FileHandler(LOG_PATH, encoding="utf-8"))
+            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
+            handlers.append(file_handler)
         except OSError as exc:
             print(f"File logging unavailable at {LOG_PATH}: {exc}")
         handlers.append(logging.StreamHandler(sys.stdout))
@@ -50,9 +52,22 @@ def _configure_logging() -> None:
             format="%(asctime)s [%(levelname)s] %(message)s",
             handlers=handlers,
         )
-        print(f"Logging initialized; target file: {LOG_PATH}")
     except Exception as exc:  # pragma: no cover - defensive path
-        print(f"Logging setup failed; continuing without configured logging: {exc}")
+        print(f"Logging setup failed; continuing with stdout only: {exc}")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[logging.StreamHandler(sys.stdout)],
+        )
+
+
+def _build_safe_config() -> BotConfig:
+    general = GeneralConfig(check_interval=180, max_attachment_mb=15, admin_chat_id="")
+    return BotConfig(
+        general=general,
+        accounts=[],
+        keys=KeysConfig(telegram_bot_token="", cf_account_id="", cf_api_token=""),
+    )
 
 
 def _decode_subject(email_obj: EmailMessage) -> str:
@@ -124,28 +139,31 @@ def main(config_dir: Path | None = None) -> None:
     _configure_logging()
     logger = logging.getLogger("mailbot")
 
-    print("MailBot Premium v26 Starting")
+    print("MailBot v26 starting")
     try:
         base_config_dir = config_dir or CURRENT_DIR / "config"
         config = load_config(base_config_dir)
         logger.info("Configuration loaded for %d accounts", len(config.accounts))
-        print(f"Loaded config: {len(config.accounts)} accounts")
-    except Exception:
-        logger.exception("Failed to load configuration")
-        print("Configuration failed to load; see log for details")
-        return
+        print(f"Loaded configuration for {len(config.accounts)} accounts")
+    except Exception as exc:
+        logger.exception("Failed to load configuration from %s", config_dir or CURRENT_DIR / "config")
+        print(f"Configuration could not be loaded: {exc}")
+        config = _build_safe_config()
+        print("Using safe defaults; no accounts configured")
 
     state = StateManager()
-    print("State manager initialized")
+    print("State manager ready")
     processor = MessageProcessor(config=config, state=state)
-    print("Message processor initialized")
+    print("Message processor ready")
 
     cycle = 0
     try:
         while True:
             cycle += 1
-            print(f"Cycle #{cycle} started...")
+            print(f"Cycle {cycle} start")
             logger.info("Cycle %d started", cycle)
+            if not config.accounts:
+                logger.warning("No accounts configured; sleeping")
             for account in config.accounts:
                 try:
                     imap = ResilientIMAP(account, state)
@@ -160,26 +178,40 @@ def main(config_dir: Path | None = None) -> None:
                         except Exception:
                             logger.exception("Processor failed for UID %s", uid)
                             continue
-                        if final_text:
+                        if not final_text:
+                            continue
+                        try:
                             ok = send_telegram(
                                 config.keys.telegram_bot_token,
                                 account.telegram_chat_id,
                                 final_text,
                             )
-                            logger.info(
-                                "Telegram send for UID %s: %s", uid, "ok" if ok else "fail"
+                        except Exception:
+                            logger.exception("Telegram send crashed for UID %s", uid)
+                            ok = False
+                        logger.info(
+                            "Telegram send for UID %s: %s", uid, "ok" if ok else "fail"
+                        )
+                        if not ok:
+                            print(
+                                "Telegram send failed; check token, chat_id, or network."
                             )
-                            if not ok:
-                                print(
-                                    "Telegram send failed; see log for details (token/chat_id/HTTP error)."
-                                )
-                    state.save()
+                    try:
+                        state.save()
+                    except Exception:
+                        logger.exception("State save failed after account %s", account.login)
                 except Exception:
                     logger.exception("Account loop failed for %s", account.login)
-                    state.save()
+                    try:
+                        state.save()
+                    except Exception:
+                        logger.exception("State save failed after account error %s", account.login)
                     continue
-            state.save()
-            delay = max(1, config.general.check_interval)
+            try:
+                state.save()
+            except Exception:
+                logger.exception("State save failed after cycle %d", cycle)
+            delay = max(1, min(config.general.check_interval, 180))
             time.sleep(delay)
     except KeyboardInterrupt:
         logger.info("Graceful shutdown requested (KeyboardInterrupt)")

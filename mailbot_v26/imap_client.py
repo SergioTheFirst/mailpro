@@ -62,6 +62,7 @@ class ResilientIMAP:
             return messages
         except Exception as exc:  # network/imap errors should not crash pipeline
             self.state.set_imap_status(self.account.login, "error", str(exc))
+            self.logger.exception("IMAP fetch failed for %s", self.account.login)
             return []
 
 
