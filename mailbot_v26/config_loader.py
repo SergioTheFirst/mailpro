@@ -76,7 +76,7 @@ def load_general_config(base_dir: Path = CONFIG_DIR) -> GeneralConfig:
     section = parser["general"]
     try:
         return GeneralConfig(
-            check_interval=section.getint("check_interval", fallback=300),
+            check_interval=section.getint("check_interval", fallback=180),
             max_attachment_mb=section.getint("max_attachment_mb", fallback=15),
             admin_chat_id=section.get("admin_chat_id", fallback=""),
         )

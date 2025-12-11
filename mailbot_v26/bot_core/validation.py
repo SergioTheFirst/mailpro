@@ -138,7 +138,7 @@ def _self_test():
     vs_bad = validate_summary(bad, original)
     assert vs_bad is None
 
-    print("✅ STEP 15: validation self-test PASSED")
+    print("OK: validation self-test passed")
 
 
 __all__ = [

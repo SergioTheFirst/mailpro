@@ -5,10 +5,14 @@ mocks without opening real network connections.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Iterable, List, Sequence
 
-from imapclient import IMAPClient
+try:  # pragma: no cover - import guard
+    from imapclient import IMAPClient
+except ModuleNotFoundError:  # pragma: no cover - handled at runtime
+    IMAPClient = None  # type: ignore
 
 from .config_loader import AccountConfig
 from .state_manager import StateManager
@@ -20,6 +24,7 @@ class ResilientIMAP:
     def __init__(self, account: AccountConfig, state: StateManager) -> None:
         self.account = account
         self.state = state
+        self.logger = logging.getLogger(__name__)
 
     def _build_search(self, now: datetime | None = None) -> List[Sequence[str]]:
         last_uid = self.state.get_last_uid(self.account.login)
@@ -34,6 +39,10 @@ class ResilientIMAP:
 
     def fetch_new_messages(self) -> List[tuple[int, bytes]]:
         criteria = self._build_search()
+        if IMAPClient is None:
+            self.state.set_imap_status(self.account.login, "error", "imapclient missing")
+            self.logger.error("IMAP client dependency is not available; skipping fetch")
+            return []
         try:
             client = IMAPClient(self.account.host, port=self.account.port, ssl=self.account.use_ssl)
             client.login(self.account.login, self.account.password)

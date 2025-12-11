@@ -1,102 +1,0 @@
-warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/classifier.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/extractors/doc.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/extractors/excel.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/extractors/pdf.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/llm_client.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/message_processor.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/prompts/extract_facts.txt', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/prompts/verify_facts.txt', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/telegram_sender.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/bot_core/validation.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/config/accounts.ini', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/config/config.ini', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/config/keys.ini', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/config_loader.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/consistency_audit.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/formatter.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/imap_client.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/pipeline/processor.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/requirements.txt', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/start.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/state_manager.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/tests/conftest.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/tests/test_config_loader.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/tests/test_pipeline_processor.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/tests/test_state_manager.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'mailbot_v26/worker/telegram_sender.py', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'requirements.txt', LF will be replaced by CRLF the next time Git touches it
-[1mdiff --git a/CONSTITUTION.md b/CONSTITUTION.md[m
-[1mindex 49341ef..5fabb5a 100644[m
-[1m--- a/CONSTITUTION.md[m
-[1m+++ b/CONSTITUTION.md[m
-[36m@@ -1,334 +1,297 @@[m
-[31m-Живая Конституция Проекта[m
-[32m+[m[32mОБНОВЛЁННАЯ ФИНАЛЬНАЯ КОНСТИТУЦИЯ MailBot Premium v26 (2025–2026)[m[41m[m
- [m
-[31m----[m
-[32m+[m[32mCONSTITUTION[m[41m[m
- [m
-[31m-## 📌 **Введение**[m
-[32m+[m[32m📌 I. Введение[m[41m[m
- [m
-[31m-MailBot Premium v26 — это система сверхвысокой надёжности, работающая на слабом оборудовании (3GB RAM, Windows, Celeron) и обязующаяся выдавать **краткие, точные и полностью проверенные факты** из писем и вложений.[m
-[32m+[m[32mMailBot Premium v26 — высоконадёжная система анализа писем и вложений, работающая даже на слабых Windows-машинах (Celeron, 3–4 ГБ RAM) и выдающая минимальные, точные, проверенные факты в формате ≤200 символов.[m[41m[m
- [m
-[31m-Эта Конституция определяет:[m
-[32m+[m[32mЭтот документ определяет абсолютные правила проекта, обязательные для:[m[41m[m
- [m
-[31m-* философию проекта,[m
-[31m-* нерушимые инварианты,[m
-[31m-* разрешённые и запрещённые подходы,[m
-[31m-* структуру многоступенчатого pipeline,[m
-[31m-* правила LLM, OCR, классификации, валидации, форматирования,[m
-[31m-* нормы поведения системы в условиях ограниченных ресурсов,[m
-[31m-* обязанности Codex при генерации кода.[m
-[32m+[m[32mархитектуры[m[41m[m
- [m
-[31m-Конституция — **главный источник истины**.[m
-[31m-Все изменения кода должны соответствовать Конституции.[m
-[32m+[m[32mреализации кода[m[41m[m
- [m
-[31m----[m
-[32m+[m[32mCodex-генерации[m[41m[m
- [m
-[31m-# 🧠 **I. Нерушимые Принципы (Core Invariants)**[m
-[32m+[m[32mCI-проверок[m[41m[m
- [m
-[31m-Эти правила **абсолютны** и никогда не могут быть нарушены.[m
-[32m+[m[32mдальнейших версий[m[41m[m
- [m
-[31m-### **1. Качество важнее скорости**[m
-[32m+[m[32m🧠 II. Нерушимые Принципы («Core Invariants»)[m[41m[m
-[32m+[m[32m1. Качество важнее скорости[m[41m[m
- [m
-[31m-MailBot может обрабатывать письмо 1–3 минуты.[m
-[31m-Но результат обязан быть максимально точным.[m
-[32m+[m[32mMailBot может работать медленно (минуты), но результат должен быть идеален.[m[41m[m
- [m
-[31m-### **2. Zero Water**[m
-[32m+[m[32m2. Zero Water[m[41m[m
- [m
-[31m-В выводе запрещено:[m
-[32m+[m[32mЗапрещены любые лишние слова, комментарии, объяснения.[m[41m[m
-[32m+[m[32mВывод содержит только факты.[m[41m[m
- [m
-[31m-* любые лишние слова,[m
-[31m-* вступительные фразы,[m
-[31m-* “по предоставленному тексту…",[m
-[31m-* объяснения отсутствия данных,[m
-[31m-* перечисление пустых элементов.[m
-[32m+[m[32m3. Silence on Absence[m[41m[m
- [m
-[31m-Вывод содержит **только факты**, ничего лишнего.[m
-[32m+[m[32mЕсли факта нет → ничего не писать.[m[41m[m
-[32m+[m[32mЗапрещено выводить:[m[41m[m
-[32m+[m[32m«нет данных», «не найдено», «отсутствует», «none», пустые блоки.[m[41m[m
- [m
-[31m-### **3. Silence on Absence**[m
-[32m+[m[32m4. Полная проверяемость[m[41m[m
- [m
-[31m-Если факт от�

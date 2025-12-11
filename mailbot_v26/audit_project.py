@@ -44,13 +44,13 @@ def scan_code() -> list[str]:
         # 1. Запрещённые exe-строки
         for bad in FORBIDDEN_STRINGS:
             if bad in text:
-                problems.append(f"❌ В файле {file} найдено запрещённое слово: {bad}")
+                problems.append(f"ERROR: В файле {file} найдено запрещённое слово: {bad}")
 
         # 2. Запрещённые импорты
         for pattern in FORBIDDEN_IMPORTS:
             if re.search(pattern, text):
                 problems.append(
-                    f"❌ В файле {file} найден запрещённый импорт: {pattern}"
+                    f"ERROR: В файле {file} найден запрещённый импорт: {pattern}"
                 )
 
     return problems
@@ -62,14 +62,14 @@ def main():
 
     problems = scan_code()
     if not problems:
-        print("✅ Чисто! Запрещённые зависимости НЕ обнаружены.")
+        print("OK: Запрещённые зависимости не обнаружены.")
         return 0
 
     print("\nОТЧЁТ:")
     for p in problems:
         print(p)
 
-    print("\nИТОГ: ❌ Исправь нарушения перед запуском.")
+    print("\nИТОГ: ERROR: Исправь нарушения перед запуском.")
     return 1
 
 

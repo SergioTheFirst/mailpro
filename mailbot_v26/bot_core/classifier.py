@@ -178,7 +178,7 @@ def _run_self_test() -> bool:
     assert results[8][1] == "TEXT"
     assert results[9][1] == "UNKNOWN"
 
-    print("\n✅ Self-test passed: 10/10 deterministic checks")
+    print("\nSelf-test passed: 10/10 deterministic checks")
     return True
 
 

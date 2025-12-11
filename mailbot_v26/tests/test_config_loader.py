@@ -1,4 +1,3 @@
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -71,3 +70,30 @@ def test_accounts_missing_section(tmp_path: Path) -> None:
     write_file(tmp_path, "accounts.ini", "")
     with pytest.raises(ConfigError):
         load_accounts_config(tmp_path)
+
+
+def test_general_default_interval(tmp_path: Path) -> None:
+    write_file(
+        tmp_path,
+        "config.ini",
+        """[general]
+max_attachment_mb = 10
+admin_chat_id = 1
+""",
+    )
+    general = load_general_config(tmp_path)
+    assert general.check_interval == 180
+
+
+def test_general_interval_explicit_value(tmp_path: Path) -> None:
+    write_file(
+        tmp_path,
+        "config.ini",
+        """[general]
+check_interval = 180
+max_attachment_mb = 10
+admin_chat_id = 1
+""",
+    )
+    general = load_general_config(tmp_path)
+    assert general.check_interval == 180
