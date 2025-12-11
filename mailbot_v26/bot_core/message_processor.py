@@ -11,7 +11,8 @@ from ..formatter import format_summary
 from ..state_manager import StateManager
 from .action_engine import analyze_action
 from .classifier import classify_by_keywords
-from .llm_client import CloudflareConfig, CloudflareLLMClient, load_prompt
+from .llm_client import CloudflareLLM
+from .validator import validate_summary
 from .validation import drop_none_tokens, ensure_length, is_confident_score
 
 
@@ -40,13 +41,10 @@ class MessageProcessor:
         self.config = config
         self.state = state
         self.base_dir = base_dir or Path(__file__).resolve().parent
-        cf_config = CloudflareConfig(
-            account_id=config.keys.cf_account_id,
-            api_token=config.keys.cf_api_token,
-        )
-        self.llm = CloudflareLLMClient(cf_config)
-        self.prompt_extract = load_prompt(self.base_dir / "prompts" / "extract_facts.txt")
-        self.prompt_verify = load_prompt(self.base_dir / "prompts" / "verify_facts.txt")
+        self.prompts_dir = self.base_dir.parent / "prompts"
+        self.llm = CloudflareLLM(config.keys, state)
+        self.prompt_extract = (self.prompts_dir / "extract_facts.txt").read_text(encoding="utf-8")
+        self.prompt_verify = (self.prompts_dir / "verify_facts.txt").read_text(encoding="utf-8")
 
     def process(self, account_login: str, message: InboundMessage) -> str:
         text = self._collect_text(message)
@@ -60,9 +58,10 @@ class MessageProcessor:
         )
         if not is_confident_score(score):
             doc_type = doc_type or "general"
-        facts = self._extract_facts(text)
-        verified = self._verify_facts(facts, text)
-        cleaned = drop_none_tokens(verified)
+        extracted = self._extract_facts(text)
+        verified = self._verify_facts(extracted, text)
+        validated = validate_summary(verified or extracted, text)
+        cleaned = validated or drop_none_tokens(verified or extracted)
         clipped = ensure_length(cleaned or message.subject)
         if doc_type and cleaned:
             clipped = ensure_length(f"{clipped} | #{doc_type}")
@@ -115,7 +114,7 @@ class MessageProcessor:
             return ""
 
     def _extract_facts(self, text: str) -> str:
-        llm_result = self.llm.generate(self.prompt_extract, text)
+        llm_result = self.llm.ask(self.prompt_extract, text)
         if llm_result:
             return llm_result
         return self._fallback_fact_scan(text)
@@ -135,7 +134,8 @@ class MessageProcessor:
     def _verify_facts(self, facts_line: str, text: str) -> str:
         if not facts_line:
             return ""
-        verified = self.llm.generate(self.prompt_verify, f"Текст:\n{text}\n\nФакты:\n{facts_line}")
+        verify_prompt = self.prompt_verify.format(original_text=text, extracted_facts=facts_line)
+        verified = self.llm.ask(verify_prompt, "Проверить факты")
         return verified or facts_line
 
 
