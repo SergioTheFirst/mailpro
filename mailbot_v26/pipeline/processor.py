@@ -121,19 +121,15 @@ def build_final_message(subject: str, facts_str: str | None) -> str:
     if not facts_str:
         return ""
 
-    base_message = f"✉ {subject} — {facts_str}"
-    replacements = {
-        "СУММА:": "💰",
-        "СРОК:": "📅",
-        "ДОКУМЕНТ:": "№",
-        "ДЕЙСТВИЕ:": "▶",
-    }
-    for token, emoji in replacements.items():
-        base_message = base_message.replace(token, emoji)
+    clean_subject = (subject or "").strip()
+    if clean_subject:
+        base_message = f"SUBJECT: {clean_subject} | FACTS: {facts_str}"
+    else:
+        base_message = f"FACTS: {facts_str}"
 
     assert "none" not in base_message.lower()
-    if len(base_message) > 200:
-        return base_message[:197] + "…"
+    if len(base_message) > 240:
+        return base_message[:240]
     return base_message
 
 
@@ -148,11 +144,11 @@ def _self_test_build_final_message():
     valid = validation.validate_summary(facts, original)
     final = build_final_message(subject, valid)
 
-    assert final.startswith("✉ Оплата счёта")
-    assert "NONE" not in final
-    assert len(final) <= 200
+    assert final.startswith("SUBJECT:")
+    assert "none" not in final.lower()
+    assert len(final) <= 240
 
-    print("✅ STEP 16: build_final_message self-test PASSED")
+    print("OK: build_final_message self-test passed")
 
 
 if __name__ == "__main__":

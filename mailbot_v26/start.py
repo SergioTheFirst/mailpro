@@ -33,17 +33,26 @@ from mailbot_v26.bot_core.message_processor import (
 from mailbot_v26.worker.telegram_sender import send_telegram
 
 
-LOG_PATH = Path(__file__).resolve().parent / "mailbot.log"
+CURRENT_DIR = Path(__file__).resolve().parent
+LOG_PATH = CURRENT_DIR / "mailbot.log"
 
 
 def _configure_logging() -> None:
-    handlers: List[logging.Handler] = [logging.FileHandler(LOG_PATH, encoding="utf-8")]
-    handlers.append(logging.StreamHandler(sys.stdout))
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=handlers,
-    )
+    try:
+        handlers: List[logging.Handler] = []
+        try:
+            handlers.append(logging.FileHandler(LOG_PATH, encoding="utf-8"))
+        except OSError as exc:
+            print(f"File logging unavailable at {LOG_PATH}: {exc}")
+        handlers.append(logging.StreamHandler(sys.stdout))
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=handlers,
+        )
+        print(f"Logging initialized; target file: {LOG_PATH}")
+    except Exception as exc:  # pragma: no cover - defensive path
+        print(f"Logging setup failed; continuing without configured logging: {exc}")
 
 
 def _decode_subject(email_obj: EmailMessage) -> str:
@@ -117,17 +126,19 @@ def main(config_dir: Path | None = None) -> None:
 
     print("MailBot Premium v26 Starting")
     try:
-        config = load_config(config_dir or Path(__file__).resolve().parent / "config")
+        base_config_dir = config_dir or CURRENT_DIR / "config"
+        config = load_config(base_config_dir)
         logger.info("Configuration loaded for %d accounts", len(config.accounts))
-        print(f"✅ Loaded config: {len(config.accounts)} accounts")
+        print(f"Loaded config: {len(config.accounts)} accounts")
     except Exception:
         logger.exception("Failed to load configuration")
+        print("Configuration failed to load; see log for details")
         return
 
     state = StateManager()
-    print("✅ State manager initialized")
+    print("State manager initialized")
     processor = MessageProcessor(config=config, state=state)
-    print("✅ Message processor initialized")
+    print("Message processor initialized")
 
     cycle = 0
     try:
@@ -158,13 +169,18 @@ def main(config_dir: Path | None = None) -> None:
                             logger.info(
                                 "Telegram send for UID %s: %s", uid, "ok" if ok else "fail"
                             )
+                            if not ok:
+                                print(
+                                    "Telegram send failed; see log for details (token/chat_id/HTTP error)."
+                                )
                     state.save()
                 except Exception:
                     logger.exception("Account loop failed for %s", account.login)
                     state.save()
                     continue
             state.save()
-            time.sleep(max(1, config.general.check_interval))
+            delay = max(1, config.general.check_interval)
+            time.sleep(delay)
     except KeyboardInterrupt:
         logger.info("Graceful shutdown requested (KeyboardInterrupt)")
     except Exception:
