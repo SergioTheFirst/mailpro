@@ -98,17 +98,17 @@ class MessageProcessor:
         return texts
 
     def _extract_by_type(self, attachment: Attachment) -> str:
-        name_lower = attachment.filename.lower()
+        name_lower = (attachment.filename or "").lower()
         from .extractors.pdf import extract_pdf_text  # lazy import
         from .extractors.doc import extract_docx_text
         from .extractors.excel import extract_excel_text
 
         if name_lower.endswith(".pdf"):
-            return extract_pdf_text(attachment.content)
+            return extract_pdf_text(attachment.content, attachment.filename)
         if name_lower.endswith(".docx"):
-            return extract_docx_text(attachment.content)
+            return extract_docx_text(attachment.content, attachment.filename)
         if name_lower.endswith(".xls") or name_lower.endswith(".xlsx"):
-            return extract_excel_text(attachment.content)
+            return extract_excel_text(attachment.content, attachment.filename)
         try:
             return attachment.content.decode("utf-8", errors="ignore")
         except Exception:
