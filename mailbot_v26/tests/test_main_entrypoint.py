@@ -1,0 +1,16 @@
+import runpy
+
+import mailbot_v26.start
+
+
+def test_module_entrypoint_runs_start(monkeypatch):
+    called = {}
+
+    def fake_main(config_dir=None):
+        called["config_dir"] = config_dir
+
+    monkeypatch.setattr(mailbot_v26.start, "main", fake_main)
+
+    runpy.run_module("mailbot_v26", run_name="__main__")
+
+    assert called["config_dir"] is None
