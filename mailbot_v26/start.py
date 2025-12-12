@@ -1,10 +1,4 @@
-"""Runtime orchestrator for MailBot Premium v26.
-
-This module wires together configuration loading, IMAP ingestion,
-message processing, Telegram delivery, and state persistence. It must
-remain resilient (Guaranteed Mode) and never crash the whole runtime
-because of a single failing account.
-"""
+"""MailBot Premium v26 - Runtime orchestrator"""
 from __future__ import annotations
 
 import logging
@@ -16,23 +10,6 @@ from email.message import Message as EmailMessage
 from pathlib import Path
 from typing import List
 
-if "__file__" not in globals():
-    __file__ = str(Path("mailbot_v26/start.py").resolve())
-
-if __name__ == "__main__" and __package__ is None:
-    sys.path.append(str(Path(__file__).resolve().parents[1]))
-
-from mailbot_v26.config_loader import BotConfig, GeneralConfig, KeysConfig, load_config
-from mailbot_v26.imap_client import ResilientIMAP
-from mailbot_v26.state_manager import StateManager
-from mailbot_v26.bot_core.message_processor import (
-    Attachment,
-    InboundMessage,
-    MessageProcessor,
-)
-from mailbot_v26.worker.telegram_sender import send_telegram
-
-
 CURRENT_DIR = Path(__file__).resolve().parent
 LOG_PATH = CURRENT_DIR / "mailbot.log"
 
@@ -40,34 +17,31 @@ LOG_PATH = CURRENT_DIR / "mailbot.log"
 def _configure_logging() -> None:
     handlers: List[logging.Handler] = []
     try:
-        try:
-            LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            file_handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
-            handlers.append(file_handler)
-        except OSError as exc:
-            print(f"File logging unavailable at {LOG_PATH}: {exc}")
-        handlers.append(logging.StreamHandler(sys.stdout))
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=handlers,
-        )
-    except Exception as exc:  # pragma: no cover - defensive path
-        print(f"Logging setup failed; continuing with stdout only: {exc}")
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            handlers=[logging.StreamHandler(sys.stdout)],
-        )
-
-
-def _build_safe_config() -> BotConfig:
-    general = GeneralConfig(check_interval=180, max_attachment_mb=15, admin_chat_id="")
-    return BotConfig(
-        general=general,
-        accounts=[],
-        keys=KeysConfig(telegram_bot_token="", cf_account_id="", cf_api_token=""),
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(LOG_PATH, encoding="utf-8")
+        handlers.append(file_handler)
+    except OSError as exc:
+        print(f"File logging unavailable: {exc}")
+    
+    handlers.append(logging.StreamHandler(sys.stdout))
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=handlers,
+        force=True
     )
+
+
+_configure_logging()
+logger = logging.getLogger("mailbot")
+
+sys.path.insert(0, str(CURRENT_DIR.parent))
+
+from mailbot_v26.config_loader import BotConfig, load_config
+from mailbot_v26.imap_client import ResilientIMAP
+from mailbot_v26.state_manager import StateManager
+from mailbot_v26.bot_core.message_processor import Attachment, InboundMessage, MessageProcessor
+from mailbot_v26.worker.telegram_sender import send_telegram
 
 
 def _decode_subject(email_obj: EmailMessage) -> str:
@@ -76,6 +50,20 @@ def _decode_subject(email_obj: EmailMessage) -> str:
         return str(make_header(decode_header(raw_subject)))
     except Exception:
         return raw_subject or ""
+
+
+def _decode_sender(email_obj: EmailMessage) -> str:
+    """Извлекаем отправителя из From"""
+    raw_from = email_obj.get("From", "")
+    try:
+        decoded = str(make_header(decode_header(raw_from)))
+        # Убираем email, оставляем только имя
+        if "<" in decoded:
+            name = decoded.split("<")[0].strip()
+            return name if name else decoded
+        return decoded
+    except Exception:
+        return raw_from or "неизвестно"
 
 
 def _extract_body(email_obj: EmailMessage) -> str:
@@ -130,93 +118,103 @@ def _extract_attachments(email_obj: EmailMessage, max_mb: int) -> List[Attachmen
 def _parse_raw_email(raw_bytes: bytes, config: BotConfig) -> InboundMessage:
     email_obj = message_from_bytes(raw_bytes)
     subject = _decode_subject(email_obj)
+    sender = _decode_sender(email_obj)
     body = _extract_body(email_obj)
     attachments = _extract_attachments(email_obj, config.general.max_attachment_mb)
-    return InboundMessage(subject=subject, body=body, attachments=attachments)
+    return InboundMessage(subject=subject, sender=sender, body=body, attachments=attachments)
 
 
 def main(config_dir: Path | None = None) -> None:
-    _configure_logging()
-    logger = logging.getLogger("mailbot")
+    print("\n" + "="*60)
+    print("MAILBOT PREMIUM v26 - STARTING")
+    print("="*60)
+    print(f"Log file: {LOG_PATH}\n")
+    
+    logger.info("=== MailBot v26 started ===")
 
-    print("MailBot v26 starting")
     try:
         base_config_dir = config_dir or CURRENT_DIR / "config"
         config = load_config(base_config_dir)
-        logger.info("Configuration loaded for %d accounts", len(config.accounts))
-        print(f"Loaded configuration for {len(config.accounts)} accounts")
+        logger.info("Configuration loaded: %d accounts", len(config.accounts))
+        print(f"✅ Loaded {len(config.accounts)} accounts")
     except Exception as exc:
-        logger.exception("Failed to load configuration from %s", config_dir or CURRENT_DIR / "config")
-        print(f"Configuration could not be loaded: {exc}")
-        config = _build_safe_config()
-        print("Using safe defaults; no accounts configured")
+        logger.exception("Failed to load configuration")
+        print(f"❌ Configuration error: {exc}")
+        time.sleep(10)
+        return
 
-    state = StateManager()
-    print("State manager ready")
+    state = StateManager(CURRENT_DIR / "state.json")
     processor = MessageProcessor(config=config, state=state)
-    print("Message processor ready")
+    print("✅ Ready to work\n")
 
     cycle = 0
     try:
         while True:
             cycle += 1
-            print(f"Cycle {cycle} start")
+            print(f"\n{'='*60}")
+            print(f"CYCLE #{cycle} - {time.strftime('%H:%M:%S')}")
+            print(f"{'='*60}")
             logger.info("Cycle %d started", cycle)
-            if not config.accounts:
-                logger.warning("No accounts configured; sleeping")
+
             for account in config.accounts:
+                login = account.login or "no_login"
+                print(f"\n📧 Checking: {login}")
+
                 try:
                     imap = ResilientIMAP(account, state)
                     new_messages = imap.fetch_new_messages()
-                    logger.info(
-                        "Account %s fetched %d messages", account.login, len(new_messages)
-                    )
+
+                    if not new_messages:
+                        print("   └─ no new messages")
+                        continue
+
+                    print(f"   └─ received {len(new_messages)} new messages")
+
                     for uid, raw in new_messages:
-                        inbound = _parse_raw_email(raw, config)
+                        print(f"      ├─ UID {uid}")
                         try:
-                            final_text = processor.process(account.login, inbound)
-                        except Exception:
-                            logger.exception("Processor failed for UID %s", uid)
-                            continue
-                        if not final_text:
-                            continue
-                        try:
-                            ok = send_telegram(
-                                config.keys.telegram_bot_token,
-                                account.telegram_chat_id,
-                                final_text,
-                            )
-                        except Exception:
-                            logger.exception("Telegram send crashed for UID %s", uid)
-                            ok = False
-                        logger.info(
-                            "Telegram send for UID %s: %s", uid, "ok" if ok else "fail"
-                        )
-                        if not ok:
-                            print(
-                                "Telegram send failed; check token, chat_id, or network."
-                            )
-                    try:
-                        state.save()
-                    except Exception:
-                        logger.exception("State save failed after account %s", account.login)
-                except Exception:
-                    logger.exception("Account loop failed for %s", account.login)
-                    try:
-                        state.save()
-                    except Exception:
-                        logger.exception("State save failed after account error %s", account.login)
-                    continue
-            try:
-                state.save()
-            except Exception:
-                logger.exception("State save failed after cycle %d", cycle)
-            delay = max(1, min(config.general.check_interval, 180))
+                            inbound = _parse_raw_email(raw, config)
+                            subject = inbound.subject[:60] if inbound.subject else "(no subject)"
+                            sender = inbound.sender[:40] if inbound.sender else "(no sender)"
+                            print(f"      │  From: {sender}")
+                            print(f"      │  Subject: {subject}")
+
+                            final_text = processor.process(login, inbound)
+
+                            if final_text and final_text.strip():
+                                ok = send_telegram(
+                                    config.keys.telegram_bot_token,
+                                    account.telegram_chat_id,
+                                    final_text.strip()
+                                )
+                                status = "✅ sent" if ok else "❌ failed"
+                                print(f"      │  Telegram: {status}")
+                                logger.info("UID %s: Telegram %s", uid, "OK" if ok else "FAIL")
+                            else:
+                                print(f"      │  Result: empty")
+
+                        except Exception as e:
+                            print(f"      └─ ❌ ERROR: {e}")
+                            logger.exception("Processing error for UID %s", uid)
+
+                    state.save()
+
+                except Exception as e:
+                    print(f"   └─ ❌ IMAP ERROR: {e}")
+                    logger.exception("IMAP error for %s", login)
+
+            state.save()
+            delay = max(120, config.general.check_interval)
+            print(f"\n⏳ Sleeping {delay} seconds...")
             time.sleep(delay)
+
     except KeyboardInterrupt:
-        logger.info("Graceful shutdown requested (KeyboardInterrupt)")
-    except Exception:
-        logger.exception("Fatal error in main loop (Guaranteed Mode)")
+        print("\n\n🛑 Stopped by user")
+        logger.info("Stopped by user")
+    except Exception as e:
+        print(f"\n\n💥 CRITICAL ERROR: {e}")
+        logger.exception("Fatal error")
+        time.sleep(10)
 
 
 if __name__ == "__main__":
