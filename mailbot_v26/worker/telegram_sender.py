@@ -34,8 +34,8 @@ def send_telegram(bot_token: str, chat_id: str, text: str) -> bool:
             },
             timeout=15,
         )
-    except Exception as e:
-        log.exception("Telegram send exception")
+    except Exception as exc:
+        log.error("Telegram send exception: %s", exc)
         return False
 
     if resp.status_code != 200:

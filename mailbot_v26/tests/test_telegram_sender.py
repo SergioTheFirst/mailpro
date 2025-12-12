@@ -22,31 +22,33 @@ def test_send_telegram_empty_text_logs(caplog: pytest.LogCaptureFixture) -> None
 def test_send_telegram_success(monkeypatch: pytest.MonkeyPatch) -> None:
     called = {}
 
-    def fake_post(url: str, data: dict, timeout: int) -> DummyResponse:
+    def fake_post(url: str, json: dict, timeout: int) -> DummyResponse:
         called["url"] = url
-        called["data"] = data
+        called["json"] = json
         called["timeout"] = timeout
         return DummyResponse(status_code=200, text="ok")
 
     monkeypatch.setattr(telegram_sender, "requests", SimpleNamespace(post=fake_post))
     assert telegram_sender.send_telegram("token", "123", "hello") is True
-    assert called["data"]["text"] == "hello"
-    assert called["data"]["chat_id"] == "123"
+    assert called["json"]["text"] == "hello"
+    assert called["json"]["chat_id"] == "123"
+    assert called["json"]["disable_web_page_preview"] is True
 
 
 def test_send_telegram_non_200_logs(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     monkeypatch.setattr(
         telegram_sender,
         "requests",
-        SimpleNamespace(post=lambda url, data, timeout: DummyResponse(status_code=500, text="bad")),
+        SimpleNamespace(post=lambda url, json, timeout: DummyResponse(status_code=401, text="bad")),
     )
     with caplog.at_level(logging.ERROR):
         assert telegram_sender.send_telegram("token", "123", "hello") is False
-    assert "status 500" in caplog.text
+    assert "401" in caplog.text
+    assert "bad" in caplog.text
 
 
 def test_send_telegram_exception(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    def raising_post(url: str, data: dict, timeout: int) -> DummyResponse:
+    def raising_post(url: str, json: dict, timeout: int) -> DummyResponse:
         raise RuntimeError("network error")
 
     monkeypatch.setattr(telegram_sender, "requests", SimpleNamespace(post=raising_post))
@@ -59,4 +61,4 @@ def test_send_telegram_requests_missing(monkeypatch: pytest.MonkeyPatch, caplog:
     monkeypatch.setattr(telegram_sender, "requests", None)
     with caplog.at_level(logging.ERROR):
         assert telegram_sender.send_telegram("token", "123", "hello") is False
-    assert "requests library is not available" in caplog.text
+    assert "requests module not available" in caplog.text
