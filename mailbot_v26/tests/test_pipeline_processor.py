@@ -1,39 +1,52 @@
-from pathlib import Path
+from types import SimpleNamespace
 
-from mailbot_v26.config_loader import load_config
-from mailbot_v26.pipeline.processor import Message, PipelineProcessor
-from mailbot_v26.state_manager import StateManager
+from mailbot_v26.pipeline import processor
+from mailbot_v26.pipeline.processor import Attachment, InboundMessage, MessageProcessor
 
 
-def test_pipeline_generates_compact_summary(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    (config_dir / "config.ini").write_text("""[general]\ncheck_interval=100\nmax_attachment_mb=10\nadmin_chat_id=1\n""", encoding="utf-8")
-    (config_dir / "accounts.ini").write_text("""[acc]\nlogin=a@b.com\npassword=p\nhost=imap\nuse_ssl=true\ntelegram_chat_id=1\n""", encoding="utf-8")
-    (config_dir / "keys.ini").write_text("""[telegram]\nbot_token=t\n\n[cloudflare]\naccount_id=c\napi_token=k\n""", encoding="utf-8")
+class DummyState:
+    def save(self) -> None:
+        return None
 
-    config = load_config(config_dir)
-    processor = PipelineProcessor(config, StateManager(tmp_path / "state.json"))
-    summary = processor.process(
-        account_login=config.accounts[0].login,
-        message=Message(subject="Счет 321", body="Оплатить 12000 руб до 01.01.2025"),
+
+def test_message_processor_formats_output(monkeypatch):
+    class DummySummarizer:
+        def __init__(self, _):
+            pass
+
+        def summarize_email(self, text: str) -> str:
+            return "Email summary"
+
+        def summarize_attachment(self, text: str, kind: str = "PDF") -> str:
+            return f"Attachment summary {kind}"
+
+    monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
+
+    cfg = SimpleNamespace(llm_call=lambda x: "ok")
+    msg = InboundMessage(
+        subject="Subject line",
+        sender="sender@example.com",
+        body="body text",
+        attachments=[Attachment(filename="file.pdf", content=b"data", text="content")],
     )
-    assert summary.startswith("SUBJECT:")
-    assert "none" not in summary.lower()
-    assert len(summary) <= 240
+
+    output = MessageProcessor(cfg, DummyState()).process("login", msg)
+    assert output is not None
+    lines = output.split("\n")
+    assert len(lines) >= 6
+    assert lines[1] == "sender@example.com"
+    assert lines[2] == "Subject line"
+    assert "Email summary" in output
+    assert "file.pdf" in output
+    assert "Attachment summary PDF" in output
 
 
-def test_pipeline_falls_back_to_subject_when_no_facts(tmp_path: Path) -> None:
-    config_dir = tmp_path / "config"
-    config_dir.mkdir()
-    (config_dir / "config.ini").write_text("""[general]\ncheck_interval=100\nmax_attachment_mb=10\nadmin_chat_id=1\n""", encoding="utf-8")
-    (config_dir / "accounts.ini").write_text("""[acc]\nlogin=a@b.com\npassword=p\nhost=imap\nuse_ssl=true\ntelegram_chat_id=1\n""", encoding="utf-8")
-    (config_dir / "keys.ini").write_text("""[telegram]\nbot_token=t\n\n[cloudflare]\naccount_id=c\napi_token=k\n""", encoding="utf-8")
-    config = load_config(config_dir)
+def test_message_processor_handles_empty(monkeypatch):
+    monkeypatch.setattr(processor, "LLMSummarizer", lambda cfg: SimpleNamespace(
+        summarize_email=lambda text: "",
+        summarize_attachment=lambda text, kind="PDF": "",
+    ))
 
-    processor = PipelineProcessor(config, StateManager(tmp_path / "state.json"))
-    summary = processor.process(
-        account_login=config.accounts[0].login,
-        message=Message(subject="Обновление", body="Привет"),
-    )
-    assert summary == ""
+    cfg = SimpleNamespace(llm_call=None)
+    msg = InboundMessage(subject="", sender="", body="", attachments=[])
+    assert MessageProcessor(cfg, DummyState()).process("account", msg) is None

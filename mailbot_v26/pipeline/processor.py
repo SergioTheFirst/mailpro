@@ -1,25 +1,38 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 
-from mailbot_v26.bot_core.message_processor import InboundMessage, Attachment
 from mailbot_v26.llm.summarizer import LLMSummarizer
 
 
-class MessageProcessor:
-    """
-    Премиум-обработка писем:
-    - чанкинг
-    - управляемые промпты
-    - краткий деловой вывод
-    """
+@dataclass
+class Attachment:
+    filename: str
+    content: bytes
+    content_type: str = ""
+    text: str | None = None
 
-    def __init__(self, config, state):
+
+@dataclass
+class InboundMessage:
+    subject: str
+    body: str
+    sender: str = ""
+    attachments: List[Attachment] | None = None
+
+    def __post_init__(self) -> None:
+        if self.attachments is None:
+            self.attachments = []
+
+
+class MessageProcessor:
+    """Single premium pipeline entry point."""
+
+    def __init__(self, config, state) -> None:
         self.config = config
         self.state = state
-
-        # llm_call должен уже быть определён в проекте (Cloudflare, OpenAI и т.д.)
         self.llm = LLMSummarizer(config.llm_call)
 
     def process(self, account_login: str, message: InboundMessage) -> Optional[str]:
@@ -29,33 +42,53 @@ class MessageProcessor:
             return None
 
     def _build(self, account_login: str, message: InboundMessage) -> Optional[str]:
-        lines: List[str] = []
+        sender_line = (message.sender or "").strip() or account_login
+        subject_line = (message.subject or "").strip()
 
-        lines.append(datetime.now().strftime("%H:%M %d.%m.%Y"))
-        lines.append(account_login)
+        body_summary = self.llm.summarize_email(message.body or "")
 
-        if message.subject:
-            lines.append(message.subject.strip())
-
-        body_summary = self.llm.summarize_email(message.body)
-        if body_summary:
-            lines.append("")
-            lines.append(body_summary)
-
+        attachment_blocks: List[str] = []
         for att in message.attachments or []:
-            text = getattr(att, "text", "")
+            text = (att.text or "").strip()
             if not text:
                 continue
-
-            summary = self.llm.summarize_attachment(text)
+            kind = self._detect_attachment_kind(att.filename)
+            summary = self.llm.summarize_attachment(text, kind=kind)
             if not summary:
                 continue
+            attachment_blocks.append("")
+            attachment_blocks.append(att.filename or "attachment")
+            attachment_blocks.append(summary)
 
-            lines.append("")
-            lines.append(att.filename)
-            lines.append(summary)
-
-        if len(lines) < 2:
+        if not (subject_line or body_summary or attachment_blocks):
             return None
 
-        return "\n".join(lines)
+        lines: List[str] = [
+            datetime.now().strftime("%H:%M %d.%m.%Y"),
+            sender_line,
+            subject_line,
+            "",
+        ]
+
+        if body_summary:
+            lines.append(body_summary)
+
+        lines.extend(attachment_blocks)
+
+        while lines and lines[-1] == "":
+            lines.pop()
+
+        return "\n".join(line for line in lines if line is not None)
+
+    @staticmethod
+    def _detect_attachment_kind(filename: str | None) -> str:
+        if not filename:
+            return "PDF"
+        lower = filename.lower()
+        if lower.endswith((".xls", ".xlsx")):
+            return "EXCEL"
+        if lower.endswith((".doc", ".docx")):
+            return "CONTRACT"
+        if lower.endswith(".pdf"):
+            return "PDF"
+        return "GENERIC"

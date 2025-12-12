@@ -11,7 +11,7 @@ from __future__ import annotations
 import configparser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import Callable, List, Optional
 
 CONFIG_DIR = Path(__file__).resolve().parent / "config"
 
@@ -54,6 +54,7 @@ class BotConfig:
     general: GeneralConfig
     accounts: List[AccountConfig]
     keys: KeysConfig
+    llm_call: Optional[Callable[[str], str]] = None
 
 
 class ConfigError(Exception):
