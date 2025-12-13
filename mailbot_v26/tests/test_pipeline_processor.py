@@ -33,9 +33,9 @@ def test_message_processor_formats_output(monkeypatch):
     output = MessageProcessor(cfg, DummyState()).process("login", msg)
     assert output is not None
     lines = output.split("\n")
-    assert len(lines) >= 6
-    assert lines[1] == "sender@example.com"
-    assert lines[2] == "Subject line"
+    assert len(lines) >= 4
+    assert lines[0] == "sender@example.com"
+    assert lines[1] == "Subject line"
     assert "Email summary" in output
     assert "file.pdf" in output
     assert "Attachment summary PDF" in output

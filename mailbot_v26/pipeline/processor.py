@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import List, Optional
 
 from mailbot_v26.llm.summarizer import LLMSummarizer
@@ -61,29 +60,27 @@ class MessageProcessor:
             summary = sanitize_text(summary, max_length=1200)
             if not summary:
                 continue
-            attachment_blocks.append("")
-            attachment_blocks.append(att.filename or "attachment")
-            attachment_blocks.append(summary)
+            attachment_blocks.append(f"{att.filename or 'Вложение'}: {summary}")
 
         if not (subject_line or body_summary or attachment_blocks):
             return None
 
-        lines: List[str] = [
-            datetime.now().strftime("%H:%M %d.%m.%Y"),
-            sender_line,
-            subject_line,
-            "",
-        ]
+        lines: List[str] = []
+
+        if sender_line:
+            lines.append(sender_line)
+
+        if subject_line:
+            lines.append(subject_line)
 
         if body_summary:
             lines.append(body_summary)
 
-        lines.extend(attachment_blocks)
+        for block in attachment_blocks:
+            if block:
+                lines.append(block)
 
-        while lines and lines[-1] == "":
-            lines.pop()
-
-        result = "\n".join(line for line in lines if line is not None)
+        result = "\n".join(lines)
         if len(result) > 3500:
             result = result[:3497] + "..."
         return result
