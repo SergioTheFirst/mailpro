@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 FORWARD_MARKERS = (
     "from:",
@@ -16,50 +17,65 @@ FORWARD_MARKERS = (
 )
 
 SIGNATURE_MARKERS = (
-    "с уважением",
-    "regards",
-    "best regards",
-    "--",
+    "с уважением,",
+    "regards,",
 )
+
+
+def _to_str(text: Any) -> str:
+    if text is None:
+        return ""
+    try:
+        return str(text)
+    except Exception:
+        return ""
 
 
 def _is_forward_start(line: str) -> bool:
     lower = line.strip().lower()
+    if lower.startswith("--"):
+        return True
     return any(lower.startswith(marker) for marker in FORWARD_MARKERS)
 
 
 def _is_signature_start(line: str) -> bool:
     lower = line.strip().lower()
+    if lower.startswith("--"):
+        return True
     return any(lower.startswith(marker) for marker in SIGNATURE_MARKERS)
 
 
-def clean_email_body(text: str) -> str:
-    if not text:
+def clean_email_body(text: Any) -> str:
+    try:
+        normalized = _to_str(text).replace("\r\n", "\n").replace("\r", "\n")
+    except Exception:
         return ""
 
-    lines = text.splitlines()
-    cleaned_lines = []
+    lines = normalized.split("\n")
+    cleaned: list[str] = []
+
     for line in lines:
         if _is_forward_start(line):
             break
         if _is_signature_start(line):
             break
-        cleaned_lines.append(line)
+        cleaned.append(line)
 
     collapsed: list[str] = []
     blank = False
-    for line in cleaned_lines:
-        stripped = line.rstrip()
-        if stripped.strip() == "":
-            if not blank:
-                collapsed.append("")
+    for line in cleaned:
+        stripped = line.strip()
+        if not stripped:
+            if blank:
+                continue
+            collapsed.append("")
             blank = True
             continue
-        collapsed.append(stripped.strip())
+        collapsed.append(stripped)
         blank = False
 
-    result = "\n".join(line for line in collapsed if line is not None)
-    result = re.sub(r"\n{3,}", "\n\n", result).strip()
+    result = "\n".join(collapsed).strip()
+    result = re.sub(r"\n{3,}", "\n\n", result)
     return result
 
 
