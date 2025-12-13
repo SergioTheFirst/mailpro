@@ -1,3 +1,4 @@
+from datetime import datetime
 from types import SimpleNamespace
 
 from mailbot_v26.pipeline import processor
@@ -15,10 +16,10 @@ def test_message_processor_formats_output(monkeypatch):
             pass
 
         def summarize_email(self, text: str) -> str:
-            return "Email summary"
+            return "Краткое резюме письма."
 
         def summarize_attachment(self, text: str, kind: str = "PDF") -> str:
-            return f"Attachment summary {kind}"
+            return f"Сводка вложения {kind}."
 
     monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
 
@@ -28,17 +29,18 @@ def test_message_processor_formats_output(monkeypatch):
         sender="sender@example.com",
         body="body text",
         attachments=[Attachment(filename="file.pdf", content=b"data", text="content")],
+        received_at=datetime(2024, 1, 1, 9, 30),
     )
 
     output = MessageProcessor(cfg, DummyState()).process("login", msg)
     assert output is not None
     lines = output.split("\n")
-    assert len(lines) >= 4
-    assert lines[0] == "sender@example.com"
-    assert lines[1] == "Subject line"
-    assert "Email summary" in output
+    assert lines[0].startswith("09:30 01.01.2024")
+    assert lines[1] == "sender@example.com"
+    assert lines[2] == "Subject line"
+    assert "Краткое резюме" in output
     assert "file.pdf" in output
-    assert "Attachment summary PDF" in output
+    assert "Сводка вложения PDF" in output
 
 
 def test_message_processor_handles_empty(monkeypatch):
@@ -71,7 +73,13 @@ def test_message_processor_strips_forwarded_headers(monkeypatch):
 
     cfg = SimpleNamespace(llm_call=lambda x: "ok")
     body = "Текст сообщения\nFrom: other@example.com\nSent: now\nSubject: test"
-    msg = InboundMessage(subject="Subj", sender="sender@example.com", body=body, attachments=[])
+    msg = InboundMessage(
+        subject="Subj",
+        sender="sender@example.com",
+        body=body,
+        attachments=[],
+        received_at=datetime(2024, 1, 1, 10, 0),
+    )
 
     output = MessageProcessor(cfg, DummyState()).process("login", msg)
     assert output is not None
@@ -93,8 +101,48 @@ def test_message_processor_caps_length(monkeypatch):
     monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
 
     cfg = SimpleNamespace(llm_call=lambda x: "ok")
-    msg = InboundMessage(subject="Subj", sender="sender@example.com", body="text", attachments=[])
+    msg = InboundMessage(
+        subject="Subj",
+        sender="sender@example.com",
+        body="text",
+        attachments=[],
+        received_at=datetime(2024, 1, 1, 11, 0),
+    )
 
     output = MessageProcessor(cfg, DummyState()).process("login", msg)
     assert output is not None
     assert len(output) <= 3500
+
+
+def test_message_processor_filters_binary_and_formats(monkeypatch):
+    class DummySummarizer:
+        def __init__(self, _):
+            pass
+
+        def summarize_email(self, text: str) -> str:
+            return text
+
+        def summarize_attachment(self, text: str, kind: str = "PDF") -> str:
+            return text
+
+    monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
+
+    cfg = SimpleNamespace(llm_call=lambda x: "ok")
+    body = "Основной текст\nIHDR should be removed\nPK noise"
+    attachments = [
+        Attachment(filename="image.png", content=b"data", text="IHDR bad"),
+        Attachment(filename="file.docx", content=b"data", text="Полезный текст"),
+    ]
+    msg = InboundMessage(
+        subject="Subj",
+        sender="sender@example.com",
+        body=body,
+        attachments=attachments,
+        received_at=datetime(2024, 1, 1, 12, 0),
+    )
+
+    output = MessageProcessor(cfg, DummyState()).process("login", msg)
+    assert output is not None
+    assert "IHDR" not in output
+    assert "PK" not in output
+    assert "Полезный текст" in output

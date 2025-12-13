@@ -30,3 +30,9 @@ def test_sanitize_preserves_russian_text():
     raw = "Основной текст письма без мусора"
     cleaned = sanitize_text(raw)
     assert cleaned == raw
+
+
+def test_sanitize_removes_base64_runs():
+    raw = "Header\n" + ("Q" * 50)
+    cleaned = sanitize_text(raw)
+    assert "Q" * 30 not in cleaned

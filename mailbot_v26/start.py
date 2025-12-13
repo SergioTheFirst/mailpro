@@ -4,9 +4,11 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from datetime import datetime
 from email import message_from_bytes
 from email.header import decode_header, make_header
 from email.message import Message as EmailMessage
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import List
 
@@ -66,6 +68,19 @@ def _decode_sender(email_obj: EmailMessage) -> str:
         return decoded
     except Exception:
         return raw_from or ""
+
+
+def _decode_date(email_obj: EmailMessage) -> datetime:
+    raw_date = email_obj.get("Date", "")
+    try:
+        parsed = parsedate_to_datetime(raw_date)
+        if parsed is None:
+            return datetime.now()
+        if parsed.tzinfo:
+            parsed = parsed.astimezone().replace(tzinfo=None)
+        return parsed
+    except Exception:
+        return datetime.now()
 
 
 def _decode_part(part: EmailMessage) -> str:
@@ -157,9 +172,16 @@ def _parse_raw_email(raw_bytes: bytes, config: BotConfig) -> InboundMessage:
     email_obj = message_from_bytes(raw_bytes)
     subject = _decode_subject(email_obj)
     sender = _decode_sender(email_obj)
+    received_at = _decode_date(email_obj)
     body = _extract_body(email_obj)
     attachments = _extract_attachments(email_obj, config.general.max_attachment_mb)
-    return InboundMessage(subject=subject, sender=sender, body=body, attachments=attachments)
+    return InboundMessage(
+        subject=subject,
+        sender=sender,
+        body=body,
+        attachments=attachments,
+        received_at=received_at,
+    )
 
 
 def main(config_dir: Path | None = None) -> None:

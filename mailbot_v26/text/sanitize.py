@@ -13,6 +13,8 @@ BINARY_MARKERS = (
     "image001.png",
 )
 
+BASE64_RUN = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
+NOISE_BLOCK = re.compile(r"[^\w\s]{16,}")
 CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
@@ -31,7 +33,9 @@ def _has_dense_noise(line: str) -> bool:
     letters_digits = sum(1 for ch in stripped if ch.isalpha() or ch.isdigit())
     if len(stripped) > 80 and letters_digits < len(stripped) * 0.25:
         return True
-    if re.search(r"[^\w\s]{12,}", stripped):
+    if BASE64_RUN.search(stripped):
+        return True
+    if NOISE_BLOCK.search(stripped):
         return True
     return False
 
