@@ -67,6 +67,32 @@ def _decode_sender(email_obj: EmailMessage) -> str:
         return raw_from or ""
 
 
+def _decode_part(part: EmailMessage) -> str:
+    """Extract text from a single MIME part.
+
+    Some emails use 7bit/8bit encoding without transfer-encoding. In those
+    cases ``get_payload(decode=True)`` returns ``None`` even though the
+    payload is present. We fall back to the raw payload to avoid dropping the
+    message body entirely.
+    """
+
+    raw_payload = part.get_payload(decode=True)
+    if raw_payload is None:
+        raw_payload = part.get_payload(decode=False)
+
+    if isinstance(raw_payload, str):
+        text = raw_payload.strip()
+    else:
+        payload_bytes = raw_payload or b""
+        charset = part.get_content_charset() or "utf-8"
+        try:
+            text = payload_bytes.decode(charset, errors="ignore").strip()
+        except Exception:
+            text = ""
+
+    return text
+
+
 def _extract_body(email_obj: EmailMessage) -> str:
     if email_obj.is_multipart():
         parts = []
@@ -75,21 +101,13 @@ def _extract_body(email_obj: EmailMessage) -> str:
                 continue
             if part.get_content_disposition() == "attachment":
                 continue
-            try:
-                payload = part.get_payload(decode=True) or b""
-                charset = part.get_content_charset() or "utf-8"
-                text = payload.decode(charset, errors="ignore")
-                if text.strip():
-                    parts.append(text.strip())
-            except Exception:
-                continue
+
+            text = _decode_part(part)
+            if text:
+                parts.append(text)
         return "\n".join(parts)
-    try:
-        payload = email_obj.get_payload(decode=True) or b""
-        charset = email_obj.get_content_charset() or "utf-8"
-        return payload.decode(charset, errors="ignore").strip()
-    except Exception:
-        return ""
+
+    return _decode_part(email_obj)
 
 
 def _extract_attachment_text(att: Attachment) -> str:
