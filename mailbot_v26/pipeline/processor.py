@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from mailbot_v26.llm.summarizer import LLMSummarizer
+from mailbot_v26.text import clean_email_body, sanitize_text
 
 
 @dataclass
@@ -42,18 +43,22 @@ class MessageProcessor:
             return None
 
     def _build(self, account_login: str, message: InboundMessage) -> Optional[str]:
-        sender_line = (message.sender or "").strip() or account_login
-        subject_line = (message.subject or "").strip()
+        sender_line = sanitize_text((message.sender or "").strip() or account_login, max_length=200)
+        subject_line = sanitize_text((message.subject or "").strip(), max_length=300)
 
-        body_summary = self.llm.summarize_email(message.body or "")
+        cleaned_body = clean_email_body(message.body or "")
+        sanitized_body = sanitize_text(cleaned_body, max_length=6000)
+        body_summary_raw = self.llm.summarize_email(sanitized_body)
+        body_summary = sanitize_text(body_summary_raw, max_length=1200)
 
         attachment_blocks: List[str] = []
         for att in message.attachments or []:
-            text = (att.text or "").strip()
+            text = sanitize_text((att.text or "").strip(), max_length=4000)
             if not text:
                 continue
             kind = self._detect_attachment_kind(att.filename)
             summary = self.llm.summarize_attachment(text, kind=kind)
+            summary = sanitize_text(summary, max_length=1200)
             if not summary:
                 continue
             attachment_blocks.append("")
@@ -78,7 +83,10 @@ class MessageProcessor:
         while lines and lines[-1] == "":
             lines.pop()
 
-        return "\n".join(line for line in lines if line is not None)
+        result = "\n".join(line for line in lines if line is not None)
+        if len(result) > 3500:
+            result = result[:3497] + "..."
+        return result
 
     @staticmethod
     def _detect_attachment_kind(filename: str | None) -> str:

@@ -45,6 +45,7 @@ from mailbot_v26.worker.telegram_sender import send_telegram
 from mailbot_v26.bot_core.extractors.doc import extract_docx_text
 from mailbot_v26.bot_core.extractors.excel import extract_excel_text
 from mailbot_v26.bot_core.extractors.pdf import extract_pdf_text
+from mailbot_v26.text import sanitize_text
 
 
 def _decode_subject(email_obj: EmailMessage) -> str:
@@ -112,14 +113,18 @@ def _extract_body(email_obj: EmailMessage) -> str:
 
 def _extract_attachment_text(att: Attachment) -> str:
     name_lower = (att.filename or "").lower()
+    content_type = (att.content_type or "").lower()
     try:
         if name_lower.endswith(".pdf"):
-            return extract_pdf_text(att.content, att.filename)
+            return sanitize_text(extract_pdf_text(att.content, att.filename), max_length=5000)
         if name_lower.endswith((".doc", ".docx")):
-            return extract_docx_text(att.content, att.filename)
+            return sanitize_text(extract_docx_text(att.content, att.filename), max_length=5000)
         if name_lower.endswith((".xls", ".xlsx")):
-            return extract_excel_text(att.content, att.filename)
-        return att.content.decode("utf-8", errors="ignore")
+            return sanitize_text(extract_excel_text(att.content, att.filename), max_length=5000)
+        if content_type.startswith("text") or name_lower.endswith((".txt", ".csv", ".log", ".md", ".json")):
+            decoded = att.content.decode("utf-8", errors="ignore")
+            return sanitize_text(decoded, max_length=4000)
+        return ""
     except Exception:
         return ""
 
