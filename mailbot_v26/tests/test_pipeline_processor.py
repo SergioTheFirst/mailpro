@@ -42,11 +42,59 @@ def test_message_processor_formats_output(monkeypatch):
 
 
 def test_message_processor_handles_empty(monkeypatch):
-    monkeypatch.setattr(processor, "LLMSummarizer", lambda cfg: SimpleNamespace(
-        summarize_email=lambda text: "",
-        summarize_attachment=lambda text, kind="PDF": "",
-    ))
+    monkeypatch.setattr(
+        processor,
+        "LLMSummarizer",
+        lambda cfg: SimpleNamespace(
+            summarize_email=lambda text: "",
+            summarize_attachment=lambda text, kind="PDF": "",
+        ),
+    )
 
     cfg = SimpleNamespace(llm_call=None)
     msg = InboundMessage(subject="", sender="", body="", attachments=[])
     assert MessageProcessor(cfg, DummyState()).process("account", msg) is None
+
+
+def test_message_processor_strips_forwarded_headers(monkeypatch):
+    class DummySummarizer:
+        def __init__(self, _):
+            pass
+
+        def summarize_email(self, text: str) -> str:
+            return text
+
+        def summarize_attachment(self, text: str, kind: str = "PDF") -> str:
+            return text
+
+    monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
+
+    cfg = SimpleNamespace(llm_call=lambda x: "ok")
+    body = "Текст сообщения\nFrom: other@example.com\nSent: now\nSubject: test"
+    msg = InboundMessage(subject="Subj", sender="sender@example.com", body=body, attachments=[])
+
+    output = MessageProcessor(cfg, DummyState()).process("login", msg)
+    assert output is not None
+    assert "From:" not in output
+    assert "Sent:" not in output
+
+
+def test_message_processor_caps_length(monkeypatch):
+    class DummySummarizer:
+        def __init__(self, _):
+            pass
+
+        def summarize_email(self, text: str) -> str:
+            return "A" * 4000
+
+        def summarize_attachment(self, text: str, kind: str = "PDF") -> str:
+            return ""
+
+    monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
+
+    cfg = SimpleNamespace(llm_call=lambda x: "ok")
+    msg = InboundMessage(subject="Subj", sender="sender@example.com", body="text", attachments=[])
+
+    output = MessageProcessor(cfg, DummyState()).process("login", msg)
+    assert output is not None
+    assert len(output) <= 3500
