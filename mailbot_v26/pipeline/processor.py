@@ -44,6 +44,7 @@ class MessageProcessor:
             return None
 
     def _build(self, account_login: str, message: InboundMessage) -> Optional[str]:
+        print("USING NEW PIPELINE")
         timestamp_line = self._format_timestamp(message.received_at)
         sender_line = sanitize_text((message.sender or "").strip() or account_login, max_length=200)
         subject_line = sanitize_text((message.subject or "").strip(), max_length=300)
