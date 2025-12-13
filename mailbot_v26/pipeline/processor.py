@@ -46,26 +46,27 @@ class MessageProcessor:
     def _build(self, account_login: str, message: InboundMessage) -> Optional[str]:
         print("USING NEW PIPELINE")
         timestamp_line = self._format_timestamp(message.received_at)
-        sender_line = sanitize_text((message.sender or "").strip() or account_login, max_length=200)
-        subject_line = sanitize_text((message.subject or "").strip(), max_length=300)
+        sender_line = sanitize_text((message.sender or "").strip() or account_login, max_len=200)
+        subject_line = sanitize_text((message.subject or "").strip(), max_len=300)
 
-        cleaned_body = clean_email_body(message.body or "")
-        sanitized_body = sanitize_text(cleaned_body, max_length=6000)
-        body_summary_raw = self.llm.summarize_email(sanitized_body)
-        body_summary = sanitize_text(body_summary_raw, max_length=1200)
+        body_clean = clean_email_body(message.body or "")
+        body_clean = sanitize_text(body_clean, max_len=6000)
+
+        body_summary_raw = self.llm.summarize_email(body_clean)
+        body_summary = sanitize_text(body_summary_raw, max_len=1200)
         if not body_summary:
-            body_summary = self._fallback_summary(sanitized_body)
+            body_summary = self._fallback_summary(body_clean)
 
         attachment_blocks: List[tuple[str, str]] = []
         for att in message.attachments or []:
-            text = sanitize_text((att.text or "").strip(), max_length=4000)
-            if not text:
+            att_text = sanitize_text(att.text or "", max_len=4000)
+            if not att_text:
                 continue
             kind = self._detect_attachment_kind(att.filename)
-            summary_raw = self.llm.summarize_attachment(text, kind=kind)
-            summary = sanitize_text(summary_raw, max_length=1200)
+            summary_raw = self.llm.summarize_attachment(att_text, kind=kind)
+            summary = sanitize_text(summary_raw, max_len=1200)
             if not summary:
-                summary = self._fallback_summary(text, limit=600)
+                summary = self._fallback_summary(att_text, limit=600)
             if not summary:
                 continue
             attachment_blocks.append((att.filename or "Вложение", summary))
@@ -108,9 +109,7 @@ class MessageProcessor:
 
     @staticmethod
     def _fallback_summary(text: str, limit: int = 700) -> str:
-        if not text:
-            return ""
-        cleaned = sanitize_text(text, max_length=limit + 3)
+        cleaned = sanitize_text(text or "", max_len=limit + 3)
         if not cleaned:
             return ""
         if len(cleaned) > limit:

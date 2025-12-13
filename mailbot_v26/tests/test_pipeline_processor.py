@@ -114,7 +114,7 @@ def test_message_processor_caps_length(monkeypatch):
     assert len(output) <= 3500
 
 
-def test_message_processor_filters_binary_and_formats(monkeypatch):
+def test_processor_output_no_binary(monkeypatch):
     class DummySummarizer:
         def __init__(self, _):
             pass
@@ -128,10 +128,17 @@ def test_message_processor_filters_binary_and_formats(monkeypatch):
     monkeypatch.setattr(processor, "LLMSummarizer", DummySummarizer)
 
     cfg = SimpleNamespace(llm_call=lambda x: "ok")
-    body = "Основной текст\nIHDR should be removed\nPK noise"
+    body = (
+        "Main text\n"
+        "From: forwarded@example.com\n"
+        "Sent: yesterday\n"
+        "Subject: forwarded\n"
+        "IDAT should go away"
+    )
     attachments = [
         Attachment(filename="image.png", content=b"data", text="IHDR bad"),
-        Attachment(filename="file.docx", content=b"data", text="Полезный текст"),
+        Attachment(filename="file.docx", content=b"data", text="Useful text"),
+        Attachment(filename="archive.zip", content=b"data", text="PK header"),
     ]
     msg = InboundMessage(
         subject="Subj",
@@ -145,4 +152,5 @@ def test_message_processor_filters_binary_and_formats(monkeypatch):
     assert output is not None
     assert "IHDR" not in output
     assert "PK" not in output
-    assert "Полезный текст" in output
+    assert "IDAT" not in output
+    assert "Useful text" in output

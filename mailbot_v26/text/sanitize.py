@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 
 BINARY_MARKERS = (
@@ -8,59 +9,83 @@ BINARY_MARKERS = (
     "idat",
     "pk",
     "content_types",
-    "base64",
     "=?koi8",
-    "image001.png",
+    "base64",
+    "image/png",
+    "zip",
 )
 
 BASE64_RUN = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
-NOISE_BLOCK = re.compile(r"[^\w\s]{16,}")
-CONTROL_CHARS_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
-def _contains_marker(line: str) -> bool:
-    lowered = line.lower()
-    return any(marker in lowered for marker in BINARY_MARKERS)
+def _to_str(text: Any) -> str:
+    if text is None:
+        return ""
+    if isinstance(text, bytes):
+        try:
+            return text.decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+    try:
+        return str(text)
+    except Exception:
+        return ""
 
 
-def _has_dense_noise(line: str) -> bool:
-    stripped = line.strip()
-    if not stripped:
+def is_binaryish(text: str) -> bool:
+    data = _to_str(text)
+    if not data:
         return False
-    printable = sum(1 for ch in stripped if ch.isprintable())
-    if printable == 0:
+
+    if "\x00" in data:
         return True
-    letters_digits = sum(1 for ch in stripped if ch.isalpha() or ch.isdigit())
-    if len(stripped) > 80 and letters_digits < len(stripped) * 0.25:
+
+    lowered = data.lower()
+    if any(marker in lowered for marker in BINARY_MARKERS):
         return True
-    if BASE64_RUN.search(stripped):
+
+    if BASE64_RUN.search(data):
         return True
-    if NOISE_BLOCK.search(stripped):
+
+    non_printable = sum(1 for ch in data if not (ch.isprintable() or ch in "\n\r\t"))
+    if non_printable > 5 and non_printable > len(data) * 0.02:
         return True
+
     return False
 
 
-def _strip_control(text: str) -> str:
-    return CONTROL_CHARS_RE.sub(" ", text.replace("\x00", " "))
-
-
-def sanitize_text(text: str, max_length: int = 4000) -> str:
-    if not text:
+def sanitize_text(text: Any, max_len: int = 8000) -> str:
+    try:
+        normalized = _to_str(text)
+        normalized = normalized.replace("\r\n", "\n").replace("\r", "\n")
+        normalized = normalized.replace("\x00", "")
+    except Exception:
         return ""
 
-    safe_lines = []
-    for raw_line in text.splitlines():
-        line = _strip_control(raw_line)
-        if _contains_marker(line) or _has_dense_noise(line):
+    safe_lines: list[str] = []
+    for raw_line in normalized.split("\n"):
+        line = raw_line.strip("\ufeff")
+        if is_binaryish(line):
             continue
         safe_lines.append(line)
 
-    cleaned = "\n".join(safe_lines)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    collapsed: list[str] = []
+    blank = False
+    for line in safe_lines:
+        compact = re.sub(r"\s+", " ", line).strip()
+        if not compact:
+            if blank:
+                continue
+            collapsed.append("")
+            blank = True
+            continue
+        collapsed.append(compact)
+        blank = False
 
-    if len(cleaned) > max_length:
-        return cleaned[:max_length]
+    cleaned = "\n".join(collapsed).strip()
+    if len(cleaned) > max_len:
+        return cleaned[: max_len - 3] + "..."
     return cleaned
 
 
-__all__ = ["sanitize_text"]
+__all__ = ["sanitize_text", "is_binaryish"]
